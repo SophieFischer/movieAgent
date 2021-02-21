@@ -36,13 +36,13 @@ Follow ups:
 # for part B, couldn't keep it in part B because of cyclic import issues
 def get_watch_provider(result_id, api_key, kind='movie'):
     api_query = f'https://api.themoviedb.org/3/{kind}/{result_id}/watch/providers?api_key={api_key}'
-    print(api_query)
     r = requests.get(api_query)
     results = json.loads(r.text)['results']
     if results == []:
         # no watch provider found in the database
         return None
     return results
+
 
 def get_api_key():
     with open("api_key.txt", "r") as f:
@@ -89,7 +89,7 @@ def format_api_query(queries, api_key, kind='movie'):
         elif q[0] == "director":
             person = True
             formatted_query_string += "&with_crew={}".format(q[1])
-        #elif q[0] == "watch_provider":
+        # elif q[0] == "watch_provider":
         #    genre = True
         #    formatted_query_string += f'&with_watch_providers={q[1]}'
 
@@ -122,68 +122,116 @@ def format_recommendation(results, queries, api_key, kind='movie'):
     # save the recommendation from this search retrieval so that we can later look it up to answer follow up requests
     prev_recommendation_id.append(first_result['id'])
     fulfil_txt += "How about {}? It has an average rating of {}".format(title, first_result['vote_average'])
-    return {'fulfillmentText': fulfil_txt}
+    return {'fulfillmentText': fulfil_txt, 'details': results['results'][i]}
+
+
+def get_result_details(result_id, api_key, kind='movie'):
+    # get movie details for movie that was recommended in last recommendation
+    api_request = "https://api.themoviedb.org/3/{}/{}?api_key={}&language=en-US".format(
+        kind, result_id, api_key)
+    return json.loads(requests.get(api_request).text)
+
+
+def get_result_credits(result_id, api_key, kind='movie'):
+    # get movie credits details for cast and crew information
+    api_request = "https://api.themoviedb.org/3/{}/{}/credits?api_key={}&language=en-US".format(
+        kind, result_id, api_key)
+    return json.loads(requests.get(api_request).text)
+
+
+def extract_data_from_details(parameter_type, details, api_key, kind='movie'):
+    fulfil_txt = ""
+    watch_providers = None
+    people_ids = []
+    if parameter_type == "genre":
+        genres = []
+        # retrieve all genres that the movie is classified as
+        for g in details["genres"]:
+            genres.append(g['name'])
+        fulfil_txt += "It is a {}.".format(" and ".join(genres))
+
+    elif parameter_type == 'starring' or parameter_type == 'director':
+        # get movie credits details for cast and crew information
+        people_details = get_result_credits(prev_recommendation_id[-1], api_key, kind)
+        if parameter_type == 'director':
+            directors = []
+            dir_ids = []
+
+            # retrieve all directors from crew information
+
+            for c in people_details.get('crew'):
+                if c['job'] == 'Director' or c['known_for_department'] == 'Directing':
+                    if c['name'] not in directors:
+                        directors.append(c['name'])
+                        dir_ids.append(('director', c['id']))
+
+            # check for directors in crew dict if there is no crew dict
+            if people_details.get('crew') == []:
+                for c in people_details.get('cast'):
+                    if c['known_for_department'] == 'Directing' and c['name'] not in directors:
+                        directors.append(c['name'])
+                        dir_ids.append(('director', c['id']))
+
+            if directors == []:
+                test_dir = details.get('created_by')
+                if test_dir is not None:
+                    print(test_dir)
+                    directors.append(test_dir[0]['name'])
+                    dir_ids.append(('director', test_dir[0]['id']))
+
+            # only return the first two directors
+            if len(directors) > 2:
+                directors = directors[:2]
+                dir_ids = dir_ids[:2]
+
+            # format response message
+            if directors != []:
+                fulfil_txt += "It is directed by {}.".format(" and ".join(directors))
+                people_ids.extend(dir_ids)
+            else:
+                title = details.get('original_name')
+                if title is None:
+                    title = details.get('original_title')
+                fulfil_txt += "There is no director in the database for {}".format(title)
+
+        else:
+            actors = []
+            # retrieve the first three actors from the cast information
+            if people_details.get('cast') is not None:
+                for a in people_details['cast'][:3]:
+                    actors.append(a['name'])
+                    people_ids.append(('actor', a['id']))
+                fulfil_txt += "It is starring {}.".format(" and ".join(actors))
+
+    elif parameter_type == 'watch_provider':
+        watch_providers = get_watch_provider(result_id=prev_recommendation_id[-1], api_key=api_key, kind=kind)
+
+    return fulfil_txt, watch_providers, people_ids
 
 
 def follow_up_logic(api_key, queries, kind='movie'):
-
     # get movie details for movie that was recommended in last recommendation
-    api_request = "https://api.themoviedb.org/3/{}/{}?api_key={}&language=en-US".format(
-        kind, prev_recommendation_id[-1], api_key)
-    movie_details = json.loads(requests.get(api_request).text)
+    movie_details = get_result_details(prev_recommendation_id[-1], api_key, kind)
     fulfil_txt = ""
     watch_providers = None
+    people_details = None
     for q in queries:
-        if q[0] == "genre":
-            genres = []
-            # retrieve all genres that the movie is classified as
-            for g in movie_details["genres"]:
-                genres.append(g['name'])
-            fulfil_txt += "It is a {}.".format(" and ".join(genres))
-        elif q[0] == 'starring' or q[0] == 'director':
-            # get movie credits details for cast and crew information
-            api_request = "https://api.themoviedb.org/3/{}/{}/credits?api_key={}&language=en-US".format(
-                kind, prev_recommendation_id[-1], api_key)
-            print(api_request)
-            people_details = json.loads(requests.get(api_request).text)
-            if q[0] == 'director':
-                directors = []
-                # retrieve all directors from crew information
-                for c in people_details['crew']:
-                    if c['job'] == 'Director' or c['known_for_department'] == 'Directing':
-                        directors.append(c['name'])
-                if people_details['crew'] == []:
-                    for c in people_details['cast']:
-                        if c['known_for_department'] == 'Directing':
-                            directors.append(c['name'])
-                if directors != []:
-                    fulfil_txt += "It is directed by {}.".format(" and ".join(directors))
-                else:
-                    title = movie_details.get('original_name')
-                    if title is None:
-                        title = movie_details.get('original_title')
-                    fulfil_txt += "There is no director in the database for {}".format(title)
-
-            else:
-                actors = []
-                # retrieve the first three actors from the cast information
-                for a in people_details['cast'][:3]:
-                    actors.append(a['name'])
-                fulfil_txt += "It is starring {}.".format(" and ".join(actors))
-        elif q[0] == 'watch_provider':
-            watch_providers = get_watch_provider(result_id=prev_recommendation_id[-1], api_key=api_key, kind=kind)
+        # extract results from API response
+        fulfil_txt, watch_providers, people_details = extract_data_from_details(q[0], movie_details, api_key, kind)
 
     if queries == {}:
-        # if no input parameters have been detected, still recommend a movie
+        # if no input parameters have been detected, still recommend something of the correct kind
         api_request = format_api_query(queries, api_key)
         result = json.loads(requests.get(api_request).text)
         return format_recommendation(result, queries, api_key)
 
     if watch_providers is not None:
-        return {'fulfillmentText': fulfil_txt, 'watch_provider': watch_providers}
+        return {'fulfillmentText': fulfil_txt, 'watch_provider': watch_providers, 'details': movie_details,
+                'id': prev_recommendation_id[-1], 'people': people_details}
 
     # create response that can be passed back as fulfilment text to Dialogflow
-    return {'fulfillmentText': fulfil_txt}
+    return {'fulfillmentText': fulfil_txt, 'details': movie_details, 'id': prev_recommendation_id[-1],
+            'people': people_details}
 
 
 def extract_params(api_key):
@@ -205,7 +253,7 @@ def extract_params(api_key):
     if params['genre'] != "":
         genre_id = get_genre_id(params['genre'], api_key)
         queries.append(('genre', genre_id, params['genre']))
-    if params['watch_provider'] != "":
+    if params.get('watch_provider') != "" and params.get('watch_provider') is not None:
         queries.append(('watch_provider', 0, params['watch_provider']))
 
     return queries
@@ -213,7 +261,6 @@ def extract_params(api_key):
 
 def check_request_body():
     # request body coming from Dialogflow webhook
-    print(request.json)
     if not request.json:
         # something went wrong with the request
         print('No json body was provided in the request.')
@@ -243,12 +290,11 @@ class MovieRecommender(Resource):
             queries = extract_params(api_key)
 
             if follow_up:
-                return make_response(jsonify(follow_up_logic(api_key, queries)))
+                response = follow_up_logic(api_key, queries)
 
             else:
                 # first request for movie recommendation
                 api_request = format_api_query(queries, api_key)
-                print(api_request)
                 result = json.loads(requests.get(api_request).text)
                 if result == []:
                     # if no result is found for the user query, try finding a result matching the individual parameters
@@ -258,7 +304,8 @@ class MovieRecommender(Resource):
                         if result != []:
                             # there has been a result found, yay!
                             break
-                return make_response(jsonify(format_recommendation(result, queries, api_key)))
+                response = format_recommendation(result, queries, api_key)
+            return make_response(jsonify({'fulfillmentText': response['fulfillmentText']}))
 
         except Exception:
             print("Error")

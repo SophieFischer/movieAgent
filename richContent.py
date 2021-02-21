@@ -1,102 +1,83 @@
-
 def format_button(link, text):
     return {
-        "richContent": [
-            [
-                {
-                    "icon": {
-                        "color": "FF9800",
-                        "type": "link"
-                    },
-                    "text": text,
-                    "type": "button",
-                    "link": link
-                }
+        "payload": {
+            "richContent": [
+                [
+                    {
+                        "icon": {
+                            "color": "FF9800",
+                            "type": "link"
+                        },
+                        "text": text,
+                        "type": "button",
+                        "link": link
+                    }
+                ]
             ]
-        ]
+        }
     }
 
 
-def format_suggestions():
+def format_suggestions(options):
     return {
-        "richContent": [
-            [
-                {
-                    "options": [
-                        {
-                            "text": "go back to main menu"
-                        }
-                    ],
-                    "type": "chips"
-                }
+        "payload": {
+            "richContent": [
+                [
+                    {
+                        "options": [{'text': o} for o in options],
+                        "type": "chips"
+                    }
+                ]
             ]
-        ]
+        }
     }
 
 
-def format_image(link, description, image_path):
+def format_image(description, image_path):
     return {
-        "richContent": [
-            [
-                {
-                    "rawUrl": image_path+link,
-                    "accessibilityText": description,
-                    "type": "image"
-                }
+        "payload": {
+            "richContent": [
+                [
+                    {
+                        "rawUrl": image_path,
+                        "accessibilityText": description,
+                        "type": "image"
+                    }
+                ]
             ]
-        ]
+        }
     }
 
 
 def format_accordion(title, subtitle, text):
     return {
-        "richContent": [
-            [
-                {
-                    "title": title,
-                    "subtitle": subtitle,
-                    "text": text,
-                    "type": "accordion"
-                }
+        "payload": {
+            "richContent": [
+                [
+                    {
+                        "title": title,
+                        "subtitle": subtitle,
+                        "text": text,
+                        "type": "accordion"
+                    }
+                ]
             ]
-        ]
+        }
     }
 
-"""
-        response_body["fulfillmentText"] = next_question[0]
 
-    response_body["fulfillmentMessages"].append(
-        {
-            "text": {
-                "text": [
-                    next_question[0]
+def format_description(title, text_list):
+    return {
+        "payload": {
+            'richContent': [
+                [
+                    {
+                        'title': title,
+                        'type': 'description',
+                        'text': text_list
+                    }
                 ]
-            }
+            ]
         }
-    )
-    response_body["fulfillmentMessages"].append(
-        {
-            "payload": {
-                "richContent": [
-                    [
-                        {
-                            "options": [
-                                {
-                                    "text": "A:" + next_question[1]
-                                },
-                                {
-                                    "text": "B:" + next_question[2]
-                                },
-                                {
-                                    "text": "C:" + next_question[3]
-                                }
-                            ],
-                            "type": "chips"
-                        }
-                    ]
-                ]
-            }
-        }
+    }
 
-    )
-"""
