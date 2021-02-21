@@ -33,6 +33,17 @@ Follow ups:
 """
 
 
+# for part B, couldn't keep it in part B because of cyclic import issues
+def get_watch_provider(result_id, api_key, kind='movie'):
+    api_query = f'https://api.themoviedb.org/3/{kind}/{result_id}/watch/providers?api_key={api_key}'
+    print(api_query)
+    r = requests.get(api_query)
+    results = json.loads(r.text)['results']
+    if results == []:
+        # no watch provider found in the database
+        return None
+    return results
+
 def get_api_key():
     with open("api_key.txt", "r") as f:
         line = f.readlines()
@@ -72,12 +83,15 @@ def format_api_query(queries, api_key, kind='movie'):
         if q[0] == 'genre':
             genre = True
             formatted_query_string += "&with_genres={}".format(q[1])
-        if q[0] == 'starring':
+        elif q[0] == 'starring':
             person = True
             formatted_query_string += "&with_cast={}".format(q[1])
-        if q[0] == "director":
+        elif q[0] == "director":
             person = True
             formatted_query_string += "&with_crew={}".format(q[1])
+        #elif q[0] == "watch_provider":
+        #    genre = True
+        #    formatted_query_string += f'&with_watch_providers={q[1]}'
 
     if kind == 'tv' and person and not genre:
         api_request = "{}/multi?api_key={}{}&query={}".format(search_path, api_key, options, queries[0][2])
@@ -85,7 +99,6 @@ def format_api_query(queries, api_key, kind='movie'):
         api_request = "{}{}?api_key={}&language=en-US&sort_by=popularity.desc{}&include_video=false{}".format(
             discover_path, kind, api_key,
             options, formatted_query_string)
-
     return api_request
 
 
@@ -98,7 +111,6 @@ def format_recommendation(results, queries, api_key, kind='movie'):
         api_request = format_api_query({}, api_key)
         results = json.loads(requests.get(api_request).text)
 
-    i = 0
     # we don't always want to return the same result
     # we generate a random number which result we should recommend from the list of movies retrieved
     i = randint(0, len(results['results'])-1)
@@ -120,6 +132,7 @@ def follow_up_logic(api_key, queries, kind='movie'):
         kind, prev_recommendation_id[-1], api_key)
     movie_details = json.loads(requests.get(api_request).text)
     fulfil_txt = ""
+    watch_providers = None
     for q in queries:
         if q[0] == "genre":
             genres = []
@@ -127,7 +140,7 @@ def follow_up_logic(api_key, queries, kind='movie'):
             for g in movie_details["genres"]:
                 genres.append(g['name'])
             fulfil_txt += "It is a {}.".format(" and ".join(genres))
-        else:
+        elif q[0] == 'starring' or q[0] == 'director':
             # get movie credits details for cast and crew information
             api_request = "https://api.themoviedb.org/3/{}/{}/credits?api_key={}&language=en-US".format(
                 kind, prev_recommendation_id[-1], api_key)
@@ -157,12 +170,17 @@ def follow_up_logic(api_key, queries, kind='movie'):
                 for a in people_details['cast'][:3]:
                     actors.append(a['name'])
                 fulfil_txt += "It is starring {}.".format(" and ".join(actors))
+        elif q[0] == 'watch_provider':
+            watch_providers = get_watch_provider(result_id=prev_recommendation_id[-1], api_key=api_key, kind=kind)
 
     if queries == {}:
         # if no input parameters have been detected, still recommend a movie
         api_request = format_api_query(queries, api_key)
         result = json.loads(requests.get(api_request).text)
         return format_recommendation(result, queries, api_key)
+
+    if watch_providers is not None:
+        return {'fulfillmentText': fulfil_txt, 'watch_provider': watch_providers}
 
     # create response that can be passed back as fulfilment text to Dialogflow
     return {'fulfillmentText': fulfil_txt}
@@ -187,6 +205,8 @@ def extract_params(api_key):
     if params['genre'] != "":
         genre_id = get_genre_id(params['genre'], api_key)
         queries.append(('genre', genre_id, params['genre']))
+    if params['watch_provider'] != "":
+        queries.append(('watch_provider', 0, params['watch_provider']))
 
     return queries
 

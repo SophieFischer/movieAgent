@@ -3,7 +3,8 @@ import traceback
 import json
 from flask import Flask, request, jsonify, make_response
 from flask_restful import Api, Resource
-from app import get_api_key, format_api_query, format_recommendation, follow_up_logic, check_request_body, extract_params
+from app import get_api_key, format_api_query, format_recommendation, follow_up_logic, check_request_body, \
+    extract_params
 from richContent import format_button, format_image, format_accordion, format_suggestions
 
 app = Flask(__name__)
@@ -18,6 +19,7 @@ discover_path = 'https://api.themoviedb.org/3/discover/movie?'
 image_path = 'https://www.themoviedb.org/t/p/w600_and_h900_bestv2'
 options = '&page=1&include_adult=false'
 prev_recommendation_id = []
+last_kind = []
 
 # PART B OF COURSEWORK
 """
@@ -34,14 +36,22 @@ Follow ups:
     - also a homepage, tagline, video, ...
 * movie credits follow up: GET /movie/<movie_id>/credits
     - contains crew and cast information
+* watch provider information: GET /movie/<movie_id>/watch/providers
+
 * image: GET /movie/<movie_id>/image
+    - will need configuration API request
     
-
-
 """
 
 
-def rich_reply():
+def rich_reply(result_id, api_key, kind='movie'):
+    api_query = f'https://api.themoviedb.org/3/{kind}/{result_id}/images?api_key={api_key}'
+
+    r = requests.get(api_query)
+    results = json.loads(r.text)["results"]
+    if results == []:
+        # no person with that name is the movie API database
+        return None
     return
 
 
@@ -65,12 +75,12 @@ class ExtendedMovieRecommender(Resource):
         api_key = get_api_key()
 
         try:
+            result = {}
             follow_up = check_request_body()
             queries = extract_params(api_key)
 
             # get whether it's an movie or tv request
             movie_kind = get_tv_or_movie_intent(request.json)
-            print("movie kind: ", movie_kind)
             if movie_kind is None:
                 # something went wrong with the request
                 print(request.json)
@@ -85,9 +95,37 @@ class ExtendedMovieRecommender(Resource):
             print(kind)
 
             if follow_up:
-                return make_response(jsonify(follow_up_logic(api_key, queries, kind=kind)))
+                if kind != last_kind[-1]:
+                    print("Wrong intent matched")
+                    kind = last_kind[-1]
+                result = follow_up_logic(api_key, queries, kind=kind)
+                watch_provider = result.get("watch_provider")
+                print(watch_provider)
+                if watch_provider is not None:
+                    watch_text = ""
+
+                    # checking if there can be a watch provider found for the UK
+                    if watch_provider.get("GB") is None:
+                        watch_provider = watch_provider.get("US")
+                    else:
+                        # take US if not found
+                        watch_provider = watch_provider.get("GB")
+                    if watch_provider is None:
+                        watch_text += f'This result of type {kind} is not available on watch providers.'
+
+                    if watch_provider.get("rent"):
+                        watch_text += f'Rent this {kind} result on {watch_provider["rent"][0]["provider_name"]}. '
+                    if watch_provider.get("buy"):
+                        watch_text += f'Buy this {kind} result on {watch_provider["buy"][0]["provider_name"]}. '
+                    if watch_provider.get("flatrate"):
+                        watch_text += f'Watch this {kind} result on {watch_provider["flatrate"][0]["provider_name"]}. '
+                    result['fulfillmentText'] += watch_text
+
+                response = result
+
             else:
                 # first request for recommendation
+                last_kind.append(kind)
                 api_request = format_api_query(queries, api_key, kind=kind)
                 print(api_request)
                 result = json.loads(requests.get(api_request).text)
@@ -106,7 +144,9 @@ class ExtendedMovieRecommender(Resource):
                         if result['results'][i].get('known_for') is not None:
                             result = {'results': result['results'][i]['known_for']}
                             break
-                return make_response(jsonify(format_recommendation(result, queries, api_key, kind=kind)))
+                response = format_recommendation(result, queries, api_key, kind=kind)
+
+            return make_response(jsonify(response))
 
         except Exception:
             print("Error")
